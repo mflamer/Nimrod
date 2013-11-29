@@ -79,7 +79,7 @@ type
 
     wStdIn, wStdOut, wStdErr,
 
-    wInOut, wByCopy, wByRef, wOneWay,
+    wInOut, wByCopy, wByRef, wOneWay, wEnumSumTyp
     
   TSpecialWords* = set[TSpecialWord]
 
@@ -162,7 +162,7 @@ const
 
     "stdin", "stdout", "stderr",
 
-    "inout", "bycopy", "byref", "oneway",
+    "inout", "bycopy", "byref", "oneway", "enumSumTyp"
     ]
 
 proc findStr*(a: openarray[string], s: string): int = 

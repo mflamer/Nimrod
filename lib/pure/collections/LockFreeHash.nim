@@ -1,4 +1,4 @@
-#nimrod c -t:-march=i686 --cpu:amd64 --threads:on -d:release lockfreehash.nim
+#nimrod c -t:-march=i686 --threads:on -d:release lockfreehash.nim
 
 import baseutils, unsigned, math, hashes
 
@@ -14,13 +14,13 @@ const
 
 when sizeof(int) == 4: # 32bit
   type 
-    TRaw = range[0..1073741823]
+    TRaw = range[1..1073741823]
     ## The range of uint values that can be stored directly in a value slot
     ## when on a 32 bit platform
 
 elif sizeof(int) == 8: # 64bit
   type
-    TRaw = range[0..4611686018427387903]
+    TRaw = range[1..4611686018427387903]
     ## The range of uint values that can be stored directly in a value slot
     ## when on a 64 bit platform
 else: echo("unsupported platform")
@@ -48,7 +48,7 @@ proc setVal[K,V](table: var PConcTable[K,V], key: int, val: int,
 #------------------------------------------------------------------------------
 
 # Create a new table
-proc newLFTable*[K,V](size: int = minTableSize): PConcTable[K,V]  =
+proc newTable*[K,V](size: int = minTableSize): PConcTable[K,V]  =
   let 
     dataLen = max(nextPowerOfTwo(size), minTableSize)   
     dataSize = dataLen*sizeof(TEntry) 
@@ -142,7 +142,7 @@ proc resize[K,V](self: PConcTable[K,V]): PConcTable[K,V] =
     return next
   var
     oldLen = atomic_load_n(self.len.addr, ATOMIC_RELAXED)     
-    newTable = newLFTable[K,V](oldLen*2)
+    newTable = newTable[K,V](oldLen*2)
     success = atomic_compare_exchange_n(self.next.addr, next.addr, newTable,
                   false, ATOMIC_RELAXED, ATOMIC_RELAXED)
   if not success:
@@ -406,7 +406,7 @@ proc getVal[K,V](table: var PConcTable[K,V], key: int): int =
   while true:
     idx = idx and (table.len - 1)        
     var 
-      newTable: PConcTable[K,V] # = atomic_load_n(table.next.addr, ATOMIC_ACQUIRE)
+      newTable: PConcTable[K,V] 
       probedKey = atomic_load_n(table[idx].key.addr, ATOMIC_SEQ_CST)    
     if keyEQ[K](probedKey, key):
       #echo("found key after ", probes+1)
@@ -424,6 +424,7 @@ proc getVal[K,V](table: var PConcTable[K,V], key: int): int =
     else:
       #echo("probe ", probes, " idx = ", idx, " key = ", key, " found ", probedKey )    
       if probes >= reProbeLimit*4 or key.isTomb:
+        newTable = atomic_load_n(table.next.addr, ATOMIC_ACQUIRE)
         if newTable == nil:
           #echo("too many probes and no new table ", key, "  ", idx )
           return NULL
@@ -435,11 +436,6 @@ proc getVal[K,V](table: var PConcTable[K,V], key: int): int =
 
 #------------------------------------------------------------------------------
    
-#proc set*(table: var PConcTable[TRaw,TRaw], key: TRaw, val: TRaw) =
-#  discard setVal(table, pack(key), pack(key), NULL, false)
-
-#proc set*[V](table: var PConcTable[TRaw,V], key: TRaw, val: ptr V) =
-#  discard setVal(table, pack(key), cast[int](val), NULL, false)
 
 proc set*[K,V](table: var PConcTable[K,V], key: var K, val: var V) =
   when not (K is TRaw): 
@@ -450,12 +446,10 @@ proc set*[K,V](table: var PConcTable[K,V], key: var K, val: var V) =
     var newVal = cast[int](copyShared(val))
   else: 
     var newVal = pack(val)
-  var oldPtr = pop(setVal(table, newKey, newVal, NULL, false))
-    #echo("oldPtr = ", cast[int](oldPtr), " newPtr = ", cast[int](newPtr))
+  var oldPtr = pop(setVal(table, newKey, newVal, NULL, false))    
   when not (V is TRaw): 
     if newVal != oldPtr and oldPtr != NULL: 
-      deallocShared(cast[ptr V](oldPtr))
-  
+      deallocShared(cast[ptr V](oldPtr))  
  
 
 proc get*[K,V](table: var PConcTable[K,V], key: var K): V =
@@ -514,7 +508,7 @@ when isMainModule:
   var 
     thr: array[0..numThreads-1, TThread[Dict]]
     
-    table = newLFTable[string,TTestObj](8)        
+    table = newTable[string,TTestObj](8)        
     rand = newMersenneTwister(2525)
 
   proc createSampleData(len: int): PDataArr = 

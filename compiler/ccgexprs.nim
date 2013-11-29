@@ -523,6 +523,12 @@ proc binaryArith(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
   var
     a, b: TLoc
     s: biggestInt
+  #if e.info ?? "mac.nim":
+  #  echo("//////////BinaryOp\\\\\\\\\\")
+  #  echo(op)
+  #  echo(rendertree(e))
+  #  echo(e.sons[1].kind) 
+  #  echo(e.sons[2].kind)  
   assert(e.sons[1].typ != nil)
   assert(e.sons[2].typ != nil)
   InitLocExpr(p, e.sons[1], a)
@@ -593,17 +599,28 @@ proc genDeref(p: BProc, e: PNode, d: var TLoc) =
     # XXX the amount of hacks for C's arrays is incredible, maybe we should
     # simply wrap them in a struct? --> Losing auto vectorization then?
     expr(p, e.sons[0], d)
-  else:
+  else:    
     initLocExpr(p, e.sons[0], a)
-    case skipTypes(a.t, abstractInst).kind
-    of tyRef:
-      d.s = OnHeap
-    of tyVar:
-      d.s = OnUnknown
-    of tyPtr:
-      d.s = OnUnknown         # BUGFIX!
-    else: InternalError(e.info, "genDeref " & $a.t.kind)
-    putIntoDest(p, d, a.t.sons[0], ropef("(*$1)", [rdLoc(a)]))
+    if skipTypes(a.t, abstractInst).kind == tyEnum:
+      d.s = OnUnknown      
+      var res = ropef("($1 & 0xFFFFFFFC)))", [rdLoc(a)]) 
+      var castr = con("(*((", getTypeDesc(p.module, e.typ))
+      castr = con(castr, "*)")     
+      res = con(castr, res)     
+      putIntoDest(p, d, a.t.sons[0], res)
+      #if e.info ?? "mac.nim":
+      #  echo("--genDeref--")
+      #  echo(res)
+    else:  
+      case skipTypes(a.t, abstractInst).kind
+      of tyRef:
+        d.s = OnHeap
+      of tyVar:
+        d.s = OnUnknown
+      of tyPtr:
+        d.s = OnUnknown         # BUGFIX!               
+      else: InternalError(e.info, "genDeref " & $a.t.kind)
+      putIntoDest(p, d, a.t.sons[0], ropef("(*$1)", [rdLoc(a)]))
 
 proc genAddr(p: BProc, e: PNode, d: var TLoc) =
   # careful  'addr(myptrToArray)' needs to get the ampersand:
@@ -839,6 +856,11 @@ proc genEcho(p: BProc, n: PNode) =
   var a: TLoc
   for i in countup(1, n.len-1):
     initLocExpr(p, n.sons[i], a)
+    #if n.info ?? "mac.nim":
+    #  echo(">>>echo n.sons[", i, "]")
+    #  debug(n.sons[i])
+    #  if n.sons[i].kind == nkSym:
+    #    debug(n.sons[i].sym)
     appf(args, ", ($1)->data", [rdLoc(a)])
   linefmt(p, cpsStmts, "printf($1$2);$n",
           makeCString(repeatStr(n.len-1, "%s") & tnl), args)
@@ -1131,6 +1153,14 @@ proc genRepr(p: BProc, e: PNode, d: var TLoc) =
   var a: TLoc
   InitLocExpr(p, e.sons[1], a)
   var t = skipTypes(e.sons[1].typ, abstractVarRange)
+  if e.info ?? "mac.nim":
+    echo("&&&&& genRepr ")
+    echo("-node")    
+    debug(e)
+    echo("-typ")
+    debug(t)
+    echo("-typ.n")
+    debug(t.n)
   case t.kind
   of tyInt..tyInt64, tyUInt..tyUInt64:
     putIntoDest(p, d, e.typ, 
@@ -1770,7 +1800,10 @@ proc exprComplexConst(p: BProc, n: PNode, d: var TLoc) =
     putIntoDest(p, d, t, tmp)
 
 proc expr(p: BProc, n: PNode, d: var TLoc) =
-  case n.kind
+  #if n.info ?? "mac.nim":
+  #  echo("\\\\\\\\ expr nkSym")
+  #  echo(n.kind)
+  case n.kind 
   of nkSym:
     var sym = n.sym
     case sym.Kind
@@ -1808,6 +1841,10 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
         else:
           putLocIntoDest(p, d, sym.loc)
       else:
+        if n.info ?? "mac.nim":
+          echo("\\\\\\\\ expr nkSym")
+          debug(n)
+          debug(sym)
         putLocIntoDest(p, d, sym.loc)
     of skTemp:
       if sym.loc.r == nil or sym.loc.t == nil:

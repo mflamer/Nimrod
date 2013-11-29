@@ -655,10 +655,10 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode, nOrig: PNode,
     # typeof support.
     # for ``type(countup(1,3))``, see ``tests/ttoseq``.
     result = semOverloadedCall(c, n, nOrig,
-      {skProc, skMethod, skConverter, skMacro, skTemplate, skIterator})
+      {skProc, skMethod, skConverter, skMacro, skTemplate, skIterator})  
   else:
     result = semOverloadedCall(c, n, nOrig, 
-      {skProc, skMethod, skConverter, skMacro, skTemplate})
+      {skProc, skMethod, skConverter, skMacro, skTemplate, skEnumField})
   if result != nil:
     if result.sons[0].kind != nkSym: 
       InternalError("semOverloadedCallAnalyseEffects")
@@ -771,6 +771,8 @@ proc semDirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
   #semLazyOpAux(c, n)
   result = semOverloadedCallAnalyseEffects(c, n, nOrig, flags)
   if result != nil: result = afterCallActions(c, result, nOrig, flags)
+  #if n.info ?? "mac.nim":    
+  #  debug(result) 
 
 proc buildStringify(c: PContext, arg: PNode): PNode = 
   if arg.typ != nil and 
@@ -881,7 +883,7 @@ proc makeDeref(n: PNode): PNode =
     result = newNodeIT(nkHiddenDeref, n.info, t.sons[0])
     addSon(result, n)
     t = skipTypes(t.sons[0], {tyGenericInst})
-  while t.kind in {tyPtr, tyRef}:
+  while t.kind in {tyPtr, tyRef, tyEnum}:
     var a = result
     result = newNodeIT(nkHiddenDeref, n.info, t.sons[0])
     addSon(result, a)
@@ -896,10 +898,9 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   var s = qualifiedLookup(c, n, {checkAmbiguity, checkUndeclared})
   if s != nil:
     return semSym(c, n, s, flags)
-
   n.sons[0] = semExprWithType(c, n.sons[0], flags+{efDetermineType})
   #restoreOldStyleType(n.sons[0])
-  var i = considerAcc(n.sons[1])
+  var i = considerAcc(n.sons[1])  
   var ty = n.sons[0].typ
   var f: PSym = nil
   result = nil
@@ -939,8 +940,8 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
     # reset to prevent 'nil' bug: see "tests/reject/tenumitems.nim":
     ty = n.sons[0].Typ
     
-  ty = skipTypes(ty, {tyGenericInst, tyVar, tyPtr, tyRef})
-  var check: PNode = nil
+  ty = skipTypes(ty, {tyGenericInst, tyVar, tyPtr, tyRef})    
+  var check: PNode = nil  
   if ty.kind == tyObject: 
     while true: 
       check = nil
@@ -961,7 +962,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
           check.sons[0] = n
           check.typ = n.typ
           result = check
-  elif ty.kind == tyTuple and ty.n != nil: 
+  elif ty.kind == tyTuple and ty.n != nil:      
     f = getSymFromList(ty.n, i)
     if f != nil:
       n.sons[0] = makeDeref(n.sons[0])
@@ -969,6 +970,18 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
       n.typ = f.typ
       result = n
       markUsed(n, f)
+  elif ty.kind == tyEnum and (tfEnumSumTyp in ty.flags):    
+    ty = ty.sons[0]  
+    f = getSymFromList(ty.n, i)      
+    if f != nil:
+      n.sons[0] = makeDeref(n.sons[0])
+      n.sons[1] = newSymNode(f)
+      n.typ = f.typ
+      result = n
+      markUsed(n, f)  
+      echo("+++++++builtinFieldAccess")
+      echo(renderTree(result))
+      echo(renderTree(result))
 
 proc dotTransformation(c: PContext, n: PNode): PNode =
   if isSymChoice(n.sons[1]):
@@ -994,19 +1007,27 @@ proc buildOverloadedSubscripts(n: PNode, ident: PIdent): PNode =
   result.add(newIdentNode(ident, n.info))
   for i in 0 .. n.len-1: result.add(n[i])
   
-proc semDeref(c: PContext, n: PNode): PNode =
+proc semDeref(c: PContext, n: PNode): PNode = 
   checkSonsLen(n, 1)
-  n.sons[0] = semExprWithType(c, n.sons[0])
+  n.sons[0] = semExprWithType(c, n.sons[0])     
   result = n
   var t = skipTypes(n.sons[0].typ, {tyGenericInst, tyVar})
   case t.kind
-  of tyRef, tyPtr: n.typ = t.sons[0]
+  of tyRef, tyPtr: 
+    n.typ = t.sons[0]    
+  of tyEnum:
+    n.typ = getEnumType(c, n.sons[0]) 
+    if n.info ?? "mac.nim":
+      echo("+++++++ semDeref Enum++")
+      debug(n.sons[0])      
+      debug(n.typ)      
+      echo("+++++++++++++++++++")     
   else: result = nil
   #GlobalError(n.sons[0].info, errCircumNeedsPointer) 
 
 proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## returns nil if not a built-in subscript operator; also called for the
-  ## checking of assignments
+  ## checking of assignments 
   if sonsLen(n) == 1: 
     var x = semDeref(c, n)
     if x == nil: return nil
@@ -1048,7 +1069,7 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
       else: LocalError(n.info, errInvalidIndexValueForTuple)
     else: 
       LocalError(n.info, errIndexTypesDoNotMatch)
-    result = n
+    result = n  
   else: nil
   
 proc semArrayAccess(c: PContext, n: PNode, flags: TExprFlags): PNode = 
@@ -1153,7 +1174,7 @@ proc semAsgn(c: PContext, n: PNode): PNode =
           lhs.typ = rhs.typ
           c.p.resultSym.typ = rhs.typ
           c.p.owner.typ.sons[0] = rhs.typ
-        else:
+        else:      
           typeMismatch(n, lhs.typ, rhs.typ)
 
     n.sons[1] = fitNode(c, le, rhs)

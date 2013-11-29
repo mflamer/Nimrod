@@ -57,8 +57,7 @@ proc newStrNodeT(strVal: string, n: PNode): PNode =
 proc ordinalValToString*(a: PNode): string = 
   # because $ has the param ordinal[T], `a` is not necessarily an enum, but an
   # ordinal
-  var x = getInt(a)
-  
+  var x = getInt(a)  
   var t = skipTypes(a.typ, abstractRange)
   case t.kind
   of tyChar: 
@@ -233,7 +232,9 @@ proc evalOp(m: TMagic, n, a, b, c: PNode): PNode =
   # b and c may be nil
   result = nil
   case m
-  of mOrd: result = newIntNodeT(getOrdValue(a), n)
+  of mOrd: 
+    if n.info ?? "mac.nim": echo("********SemFold evalOp mOrd!", a.kind)
+    result = newIntNodeT(getOrdValue(a), n)
   of mChr: result = newIntNodeT(getInt(a), n)
   of mUnaryMinusI, mUnaryMinusI64: result = newIntNodeT(- getInt(a), n)
   of mUnaryMinusF64: result = newFloatNodeT(- getFloat(a), n)
@@ -307,7 +308,7 @@ proc evalOp(m: TMagic, n, a, b, c: PNode): PNode =
     result = newIntNodeT(ord(getOrdValue(a) < getOrdValue(b)), n)
   of mLeI, mLeI64, mLeB, mLeEnum, mLeCh: 
     result = newIntNodeT(ord(getOrdValue(a) <= getOrdValue(b)), n)
-  of mEqI, mEqI64, mEqB, mEqEnum, mEqCh: 
+  of mEqI, mEqI64, mEqB, mEqEnum, mEqCh:     
     result = newIntNodeT(ord(getOrdValue(a) == getOrdValue(b)), n) 
   of mLtF64: result = newIntNodeT(ord(getFloat(a) < getFloat(b)), n)
   of mLeF64: result = newIntNodeT(ord(getFloat(a) <= getFloat(b)), n)

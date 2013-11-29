@@ -97,11 +97,13 @@ proc isPureObject(typ: PType): bool =
   while t.kind == tyObject and t.sons[0] != nil: t = t.sons[0]
   result = t.sym != nil and sfPure in t.sym.flags
 
-proc getOrdValue(n: PNode): biggestInt = 
-  case n.kind
+proc getOrdValue(n: PNode): biggestInt =   
+  case n.kind  
   of nkCharLit..nkInt64Lit: result = n.intVal
   of nkNilLit: result = 0
-  of nkHiddenStdConv: result = getOrdValue(n.sons[1])
+  of nkHiddenStdConv: 
+    echo("wtf? ", n.kind)
+    result = getOrdValue(n.sons[1])    
   else:
     LocalError(n.info, errOrdinalTypeExpected)
     result = 0
@@ -543,12 +545,15 @@ proc firstOrd(t: PType): biggestInt =
   of tyInt64: result = 0x8000000000000000'i64
   of tyUInt..tyUInt64: result = 0
   of tyEnum: 
-    # if basetype <> nil then return firstOrd of basetype
-    if (sonsLen(t) > 0) and (t.sons[0] != nil): 
+    if tfEnumSumTyp in t.flags:
+      assert(t.n.sons[0].kind == nkSym)
+      result = t.n.sons[0].sym.position and (platform.IntSize - 1)      
+    elif (sonsLen(t) > 0) and (t.sons[0] != nil):
+      # if basetype <> nil then return firstOrd of basetype 
       result = firstOrd(t.sons[0])
     else: 
       assert(t.n.sons[0].kind == nkSym)
-      result = t.n.sons[0].sym.position
+      result = t.n.sons[0].sym.position        
   of tyGenericInst, tyDistinct, tyConst, tyMutable, tyTypeDesc:
     result = firstOrd(lastSon(t))
   else: 
@@ -581,7 +586,10 @@ proc lastOrd(t: PType): biggestInt =
   of tyUInt64: result = 0x7FFFFFFFFFFFFFFF'i64
   of tyEnum: 
     assert(t.n.sons[sonsLen(t.n) - 1].kind == nkSym)
-    result = t.n.sons[sonsLen(t.n) - 1].sym.position
+    if tfEnumSumTyp in t.flags:
+      result = t.n.sons[sonsLen(t.n) - 1].sym.position and (platform.IntSize - 1)
+    else:  
+      result = t.n.sons[sonsLen(t.n) - 1].sym.position
   of tyGenericInst, tyDistinct, tyConst, tyMutable, tyTypeDesc: 
     result = lastOrd(lastSon(t))
   of tyProxy: result = 0
@@ -1177,7 +1185,9 @@ proc computeSizeAux(typ: PType, a: var biggestInt): biggestInt =
     result = lengthOrd(typ.sons[0]) * computeSizeAux(typ.sons[1], a)
   of tyEnum: 
     if firstOrd(typ) < 0: 
-      result = 4              # use signed int32
+      result = 4 # use signed int32
+    elif tfEnumSumTyp in typ.flags:
+     result = IntSize # We need room to pack a ptr in there         
     else: 
       length = lastOrd(typ)   # BUGFIX: use lastOrd!
       if length + 1 < `shl`(1, 8): result = 1

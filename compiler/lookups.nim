@@ -179,6 +179,18 @@ proc lookUp*(c: PContext, n: PNode): PSym =
   case n.kind
   of nkIdent:
     result = searchInScopes(c, n.ident)
+
+    if n.info ?? "mac.nim": 
+      echo("-------- lookup ", n.ident.s)
+      echo("name ", result.name.s)
+      echo("kind ", result.kind)
+      echo("position ", result.position)
+      echo("loc ", result.loc.a)
+      debug(result.ast)
+      echo("typ kind ", result.typ.kind)
+      echo("typ size ", result.typ.size)      
+      debug(result.typ.n)
+      
     if result == nil: 
       LocalError(n.info, errUndeclaredIdentifier, n.ident.s)
       result = errorSym(c, n)

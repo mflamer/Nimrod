@@ -54,7 +54,8 @@ proc
   
   while sym != nil:
     if sym.kind in filter:
-      determineType(c, sym)
+      determineType(c, sym)   
+
       initCandidate(z, sym, initialBinding, o.lastOverloadScope)
       z.calleeSym = sym
       matches(c, n, orig, z)
@@ -75,7 +76,7 @@ proc
           else: nil
     sym = nextOverloadIter(o, c, headSymbol)
 
-proc NotFoundError*(c: PContext, n: PNode, errors: seq[string]) =
+proc NotFoundError*(c: PContext, n: PNode, errors: seq[string]) =  
   # Gives a detailed error message; this is separated from semOverloadedCall,
   # as semOverlodedCall is already pretty slow (and we need this information
   # only in case of an error).
@@ -121,6 +122,7 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
                       filter, result, alt, errors)
 
   gatherUsedSyms(c, usedSyms)
+
   if usedSyms != nil:
     var hiddenArg = if usedSyms.len > 1: newNode(nkClosedSymChoice, n.info, usedSyms)
                     else: usedSyms[0]
@@ -154,7 +156,9 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
       LocalError(n.info, errUndeclaredIdentifier, considerAcc(f).s)
       return
     elif result.state != csMatch:
-      if nfExprCall in n.flags:
+      if nfExprCall in n.flags:        
+        echo(renderTree(n))
+        debug(n)
         LocalError(n.info, errExprXCannotBeCalled,
                    renderTree(n, {renderNoComments}))
       else:
@@ -210,7 +214,7 @@ proc ConvertTo*(c: PContext, f: PType, n: PNode): PNode =
   initCandidate(m, f)
   result = paramTypesMatch(c, m, f, n.typ, n, nil)
   if m.genericConverter and result != nil:
-    instGenericConvertersArg(c, result, m)
+    instGenericConvertersArg(c, result, m)     
 
 proc semResolvedCall(c: PContext, n: PNode, x: TCandidate): PNode =
   assert x.state == csMatch
@@ -233,11 +237,41 @@ proc semResolvedCall(c: PContext, n: PNode, x: TCandidate): PNode =
   result.sons[0] = newSymNode(finalCallee, result.sons[0].info)
   result.typ = finalCallee.typ.sons[0]
 
+proc enumConstructor(c: PContext, head: PNode): PNode =  
+  var variant = lookUp(c, head.sons[0])
+  var val = lookUp(c, head.sons[1])
+  if compareTypes(val.typ, variant.ast.sym.typ):    
+    result = newNodeI(nkInfix, head.info) 
+    result.addSon(newIdentNode(getIdent("or"), head.info))  
+    result.addSon(newIntNode(nkIntLit, variant.position))
+    var x = newNodeIT(nkCast, head.info, getSysType(tyInt))
+    x.addSon(newNodeIT(nkType, head.info, getSysType(tyInt)))
+    var y = newNodeIT(nkAddr, head.info, x.typ)
+    y.addSon(newSymNode(val, head.info))
+    x.addSon(y)
+    result.addSon(x)   
+    result = semExpr(c, result)
+    result.typ = variant.typ
+    result.typ.newSons(1)
+    result.typ.sons[0] = variant.ast.sym.typ
+  else: 
+    typeMismatch(head, variant.ast.sym.typ, val.typ)  
+  #if head.info ?? "mac.nim":
+  #  echo("---enumConstructor---")        
+  #  echo(renderTree(result))    
+  #  debug(result.typ)
+  #  debug(variant.ast.sym.typ)
+
 proc semOverloadedCall(c: PContext, n, nOrig: PNode,
                        filter: TSymKinds): PNode =
-  var r = resolveOverloads(c, n, nOrig, filter)
-  if r.state == csMatch: result = semResolvedCall(c, n, r)
-  # else: result = errorNode(c, n)
+  var o: TOverloadIter
+  var sym = initOverloadIter(o, c, nOrig.sons[0])      
+  if sym != nil and sym.kind == skEnumField and (tfEnumSumTyp in sym.typ.flags):
+    result = enumConstructor(c, nOrig)              
+  else:       
+    var r = resolveOverloads(c, n, nOrig, filter)
+    if r.state == csMatch: result = semResolvedCall(c, n, r)
+    # else: result = errorNode(c, n)
     
 proc explicitGenericInstError(n: PNode): PNode =
   LocalError(n.info, errCannotInstantiateX, renderTree(n))

@@ -59,7 +59,8 @@ proc reprChar(x: char): string {.compilerRtl.} =
 
 proc reprEnum(e: int, typ: PNimType): string {.compilerRtl.} =
   # we read an 'int' but this may have been too large, so mask the other bits:
-  let e = e and (1 shl (typ.size*8)-1)
+  let e = if typ.size == sizeof(int): e
+    else: e and (1 shl (typ.size*8)-1)
   if ntfEnumHole notin typ.flags:
     if e <% typ.node.len:
       return $typ.node.sons[e].name

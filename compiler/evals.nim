@@ -907,19 +907,33 @@ proc evalParseStmt(c: PEvalContext, n: PNode): PNode =
  
 proc evalTypeTrait*(trait, operand: PNode, context: PSym): PNode =
   InternalAssert operand.kind == nkSym
-
+  #debug(operand)
   let typ = operand.sym.typ.skipTypes({tyTypeDesc})
+  #debug(typ)
+  #debug(typ.sons[0])
   case trait.sym.name.s.normalize
   of "name":
     result = newStrNode(nkStrLit, typ.typeToString(preferName))
+    result.typ = newType(tyString, context)    
+  of "name0":
+    result = newStrNode(nkStrLit, typeToString(typ.sons[0]))
     result.typ = newType(tyString, context)
-    result.info = trait.info
+  of "name1":
+    if typ.sons.len > 1: 
+      result = newStrNode(nkStrLit, typeToString(typ.sons[1].sons[0]))
+    else:
+      result = newStrNode(nkStrLit, "")   
+    result.typ = newType(tyString, context)         
   of "arity":    
     result = newIntNode(nkIntLit, typ.n.len-1)
     result.typ = newType(tyInt, context)
-    result.info = trait.info
+  of "procReturnType":    
+    result = newSymNode(operand.sym)
+    result.typ = typ.sons[0]
+    debug(result)      
   else:
     internalAssert false
+  result.info = trait.info  
 
 proc expectString(n: PNode) =
   if n.kind notin nkStrKinds:

@@ -51,7 +51,7 @@ const
   typePragmas* = {wImportc, wExportc, wDeprecated, wMagic, wAcyclic, wNodecl, 
     wPure, wHeader, wCompilerProc, wFinal, wSize, wExtern, wShallow, 
     wImportcpp, wImportobjc, wError, wIncompleteStruct, wByCopy, wByRef,
-    wInheritable, wGenSym, wInject, wRequiresInit}
+    wInheritable, wGenSym, wInject, wRequiresInit, wEnumSumTyp}
   fieldPragmas* = {wImportc, wExportc, wDeprecated, wExtern, 
     wImportcpp, wImportobjc, wError}
   varPragmas* = {wImportc, wExportc, wVolatile, wRegister, wThreadVar, wNodecl, 
@@ -303,6 +303,7 @@ proc processOption(c: PContext, n: PNode): bool =
     of wDebugger: OnOff(c, n, {optEndb})
     of wProfiler: OnOff(c, n, {optProfiler})
     of wByRef: OnOff(c, n, {optByRef})
+    of wEnumSumTyp: OnOff(c, n, {optEnumSumTyp})
     of wDynLib: processDynLib(c, n, nil) 
     of wOptimization: 
       if n.sons[1].kind != nkIdent: 
@@ -711,6 +712,12 @@ proc singlePragma(c: PContext, sym: PSym, n: PNode, i: int,
           noVal(it)
           if sym.kind != skType or sym.typ == nil: invalidPragma(it)
           else: incl(sym.typ.flags, tfByCopy)
+        of wEnumSumTyp:
+          noVal(it)
+          if sym == nil or sym.typ == nil:
+            if processOption(c, it): LocalError(it.info, errOptionExpected)
+          else:
+            incl(sym.typ.flags, tfEnumSumTyp)  
         of wInject, wGenSym:
           # We check for errors, but do nothing with these pragmas otherwise
           # as they are handled directly in 'evalTemplate'.

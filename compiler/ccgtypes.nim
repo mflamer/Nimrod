@@ -348,6 +348,8 @@ proc getSimpleTypeDesc(m: BModule, typ: PType): PRope =
   of tyPointer: 
     result = typeNameOrLiteral(typ, "void*")
   of tyEnum: 
+    #if typ.n.info ?? "mac.nim": 
+    #  debug(typ)
     if firstOrd(typ) < 0: 
       result = typeNameOrLiteral(typ, "NI32")
     else: 
@@ -855,7 +857,8 @@ proc genEnumInfo(m: BModule, typ: PType, name: PRope) =
     assert(typ.n.sons[i].kind == nkSym)
     var field = typ.n.sons[i].sym
     var elemNode = getNimNode(m)
-    if field.ast == nil:
+    if field.ast == nil or field.ast.typ.kind != tyString or 
+      field.ast.typ.kind != tyCstring:
       # no explicit string literal for the enum field, so use field.name:
       app(enumNames, makeCString(field.name.s))
     else:

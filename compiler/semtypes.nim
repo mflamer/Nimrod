@@ -44,10 +44,10 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
     case n.sons[i].kind
     of nkEnumFieldDef: 
       e = newSymS(skEnumField, n.sons[i].sons[0], c)
-      var v = semConstExpr(c, n.sons[i].sons[1])
+      var v = semExpr(c, n.sons[i].sons[1])
       var strVal: PNode = nil
-      case skipTypes(v.typ, abstractInst-{tyTypeDesc}).kind 
-      of tyTuple: 
+      case skipTypes(v.typ, abstractInst-{tyTypeDesc}).kind       
+      of tyTuple:         
         if sonsLen(v) == 2:
           strVal = v.sons[1] # second tuple part is the string value
           if skipTypes(strVal.typ, abstractInst).kind in {tyString, tyCstring}:
@@ -56,11 +56,16 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
             LocalError(strVal.info, errStringLiteralExpected)
         else:
           LocalError(v.info, errWrongNumberOfVariables)
-      of tyString, tyCstring:
+      of tyString, tyCstring:        
         strVal = v
-        x = counter
+        x = counter      
       else:
-        x = getOrdValue(v)
+        case v.kind
+          of nkSym: 
+            strVal = v
+            x = counter
+          else:            
+            x = getOrdValue(v)
       if i != 1:
         if x != counter: incl(result.flags, tfEnumHasHoles)
         if x < counter: 
@@ -83,7 +88,10 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
     addSon(result.n, newSymNode(e))
     if sfGenSym notin e.flags and not isPure: addDecl(c, e)
     inc(counter)
-  if not hasNull: incl(result.flags, tfNeedsInit)
+  if not hasNull: incl(result.flags, tfNeedsInit)  
+  #if n.info ?? "mac.nim": 
+  #  debug(n)
+  #  debug(result.n)
 
 proc semSet(c: PContext, n: PNode, prev: PType): PType = 
   result = newOrPrevType(tySet, prev, c)

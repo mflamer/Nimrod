@@ -76,7 +76,7 @@ type
     nkInfix,              # a call like (a + b)
     nkPrefix,             # a call like !a
     nkPostfix,            # something like a! (also used for visibility)
-    nkHiddenCallConv,     # an implicit type conversion via a type converter
+    nkHiddenCallConv,     # an implicit type conversion via a type converter |#32
 
     nkExprEqExpr,         # a named parameter with equals: ''expr = expr''
     nkExprColonExpr,      # a named parameter with colon: ''expr: expr''
@@ -89,7 +89,7 @@ type
     nkCurly,              # syntactic {}
     nkCurlyExpr,          # an expression like a{i}
     nkBracket,            # syntactic []
-    nkBracketExpr,        # an expression like a[i..j, k]
+    nkBracketExpr,        # an expression like a[i..j, k] |#42
     nkPragmaExpr,         # an expression like a{.pragmas.}
     nkRange,              # an expression like i..j
     nkDotExpr,            # a.b
@@ -388,6 +388,7 @@ type
     tfHasShared,      # type constains a "shared" constraint modifier somewhere
     tfHasMeta,        # type has "typedesc" or "expr" somewhere
     tfHasGCedMem,     # type contains GC'ed memory
+    tfEnumSumTyp      # enum carries extended type data
 
   TTypeFlags* = set[TTypeFlag]
 
