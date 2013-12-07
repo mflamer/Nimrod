@@ -401,10 +401,29 @@ proc mangleRecFieldName(field: PSym, rectype: PType): PRope =
   else:
     result = toRope(mangleField(field.name.s))
   if result == nil: InternalError(field.info, "mangleRecFieldName")
-  
+
+
+proc getVariantList(n: PNode, vs: Seq[int]): Seq[int] =
+  result = vs
+  case n.kind
+  of nkRecList:
+    for i in countup(0, sonsLen(n) - 1):
+      result = getVariantList(n.sons[i], result)
+  of nkRecCase:      
+    for i in countup(1, sonsLen(n) - 1): 
+      result = getVariantList(n.sons[i], result) 
+  of nkOfBranch, nkElse: 
+    if n.sons[0].kind == nkIntLit:
+      result.add(int(n.sons[0].intVal)) 
+    else: result.add(vs[vs.len-1] + 1)  
+    if sonsLen(n) > 1:
+      result = getVariantList(n.sons[1], result)    
+  else: return 
+
+
 proc genRecordFieldsAux(m: BModule, n: PNode, 
                         accessExpr: PRope, rectype: PType, 
-                        check: var TIntSet): PRope = 
+                        check: var TIntSet, vari: int = 0): PRope = 
   var 
     ae, uname, sname, a: PRope
     k: PNode
@@ -413,30 +432,45 @@ proc genRecordFieldsAux(m: BModule, n: PNode,
   case n.kind
   of nkRecList: 
     for i in countup(0, sonsLen(n) - 1): 
-      app(result, genRecordFieldsAux(m, n.sons[i], accessExpr, rectype, check))
-  of nkRecCase: 
+      app(result, genRecordFieldsAux(m, n.sons[i], accessExpr, rectype, check, 
+        vari))
+  of nkRecCase:           
     if (n.sons[0].kind != nkSym): InternalError(n.info, "genRecordFieldsAux")
-    app(result, genRecordFieldsAux(m, n.sons[0], accessExpr, rectype, check))
-    uname = toRope(mangle(n.sons[0].sym.name.s) & 'U')
-    if accessExpr != nil: ae = ropef("$1.$2", [accessExpr, uname])
-    else: ae = uname
-    app(result, "union {" & tnl)
-    for i in countup(1, sonsLen(n) - 1): 
-      case n.sons[i].kind
-      of nkOfBranch, nkElse: 
-        k = lastSon(n.sons[i])
-        if k.kind != nkSym: 
-          sname = con("S", toRope(i))
-          a = genRecordFieldsAux(m, k, ropef("$1.$2", [ae, sname]), rectype, 
-                                 check)
-          if a != nil: 
-            app(result, "struct {")
-            app(result, a)
-            appf(result, "} $1;$n", [sname])
-        else: 
-          app(result, genRecordFieldsAux(m, k, ae, rectype, check))
-      else: internalError("genRecordFieldsAux(record case branch)")
-    appf(result, "} $1;$n", [uname])
+    app(result, genRecordFieldsAux(m, n.sons[0], accessExpr, rectype, check, 
+      vari))
+
+    if tfStaticCase in rectype.flags:
+      for i in countup(1, sonsLen(n) - 1): 
+        case n.sons[i].kind
+        of nkOfBranch, nkElse:
+          echo(i," ",vari) 
+          if i-1 == vari:
+            k = lastSon(n.sons[i])
+            app(result, genRecordFieldsAux(m, k, toRope(""), rectype, check, 
+              vari))
+        else: internalError("genRecordFieldsAux(record case branch)")
+    else:
+      uname = toRope(mangle(n.sons[0].sym.name.s) & 'U')
+      if accessExpr != nil: ae = ropef("$1.$2", [accessExpr, uname])
+      else: ae = uname
+      app(result, "union {" & tnl)
+      for i in countup(1, sonsLen(n) - 1): 
+        case n.sons[i].kind
+        of nkOfBranch, nkElse: 
+          k = lastSon(n.sons[i])
+          if k.kind != nkSym: 
+            sname = con("S", toRope(i))
+            a = genRecordFieldsAux(m, k, ropef("$1.$2", [ae, sname]), rectype, 
+              check, vari)
+            if a != nil: 
+              app(result, "struct {")
+              app(result, a)
+              appf(result, "} $1;$n", [sname])
+          else: 
+            app(result, genRecordFieldsAux(m, k, ae, rectype, check, vari))
+        else: internalError("genRecordFieldsAux(record case branch)")      
+      appf(result, "} $1;$n", [uname])
+
   of nkSym:
     field = n.sym
     if field.typ.kind == tyEmpty: return
@@ -448,14 +482,18 @@ proc genRecordFieldsAux(m: BModule, n: PNode,
     appf(result, "$1 $2;$n", [getTypeDescAux(m, field.loc.t, check), sname])
   else: internalError(n.info, "genRecordFieldsAux()")
   
-proc getRecordFields(m: BModule, typ: PType, check: var TIntSet): PRope = 
-  result = genRecordFieldsAux(m, typ.n, nil, typ, check)
+proc getRecordFields(m: BModule, typ: PType, check: var TIntSet,
+                     vari: int = 0): PRope = 
+  result = genRecordFieldsAux(m, typ.n, nil, typ, check, vari)
 
 proc getRecordDesc(m: BModule, typ: PType, name: PRope, 
-                   check: var TIntSet): PRope = 
+                   check: var TIntSet, vari: int = 0): PRope = 
   # declare the record:
   var hasField = false
-  if typ.kind == tyObject: 
+  if typ.kind == tyObject:
+    #if typ.n.info ?? "adt.nim":
+    #  echo(renderTree(typ.n))
+    #  debug(typ)
     if typ.sons[0] == nil: 
       if (typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags: 
         result = ropecg(m, "struct $1 {$n", [name])
@@ -472,7 +510,7 @@ proc getRecordDesc(m: BModule, typ: PType, name: PRope,
       hasField = true
   else: 
     result = ropef("struct $1 {$n", [name])
-  var desc = getRecordFields(m, typ, check)
+  var desc = getRecordFields(m, typ, check, vari)
   if (desc == nil) and not hasField: 
     appf(result, "char dummy;$n", [])
   else: 
@@ -492,6 +530,9 @@ proc getTupleDesc(m: BModule, typ: PType, name: PRope,
 
 proc pushType(m: BModule, typ: PType) = 
   add(m.typeStack, typ)
+
+proc getCaseVariantTypeName(typ: PType, v: int): PRope =
+  result = con(getTypeName(typ), con("_SV", toRope(v)))   
 
 proc getTypeDescAux(m: BModule, typ: PType, check: var TIntSet): PRope = 
   # returns only the type's name
@@ -583,17 +624,46 @@ proc getTypeDescAux(m: BModule, typ: PType, check: var TIntSet): PRope =
     if not isImportedType(t): 
       appf(m.s[cfsTypes], "typedef $1 $2[$3];$n", 
            [getTypeDescAux(m, t.sons[1], check), result, ToRope(n)])
-  of tyObject, tyTuple: 
-    result = CacheGetType(m.forwTypeCache, t)
-    if result == nil: 
-      result = getTypeName(t)
-      if not isImportedType(t): 
-        appf(m.s[cfsForwardTypes], getForwardStructFormat(), [result])
-      IdTablePut(m.forwTypeCache, t, result)
-    IdTablePut(m.typeCache, t, result) # always call for sideeffects:
-    if t.kind != tyTuple: recdesc = getRecordDesc(m, t, result, check)
-    else: recdesc = getTupleDesc(m, t, result, check)
-    if not isImportedType(t): app(m.s[cfsTypes], recdesc)
+
+   
+  of tyObject, tyTuple:
+    if t.n != nil and (t.n.info ?? "adt.nim"):
+      echo("-- getTypeDescAux flag") 
+      debug(t)    
+    if t.kind == tyObject and tfStaticCase in t.flags:      
+      result = CacheGetType(m.forwTypeCache, t)
+      if result == nil: 
+        result = ToRope("void*")
+        #if not isImportedType(t): 
+        #  appf(m.s[cfsForwardTypes], getForwardStructFormat(), [result])
+        IdTablePut(m.forwTypeCache, t, result)
+      IdTablePut(m.typeCache, t, result) # always call for sideeffects:
+      #---------    
+      var vs = newSeq[int](0)      
+      vs = getVariantList(t.n, vs)
+      echo("Variants = ", vs.len) 
+      var i = 0 
+      var name: PRope    
+      for v in vs:
+        name = getCaseVariantTypeName(t, v)
+        if not isImportedType(t): 
+          appf(m.s[cfsForwardTypes], getForwardStructFormat(), [name])
+        recdesc = getRecordDesc(m, t, name, check, i)        
+        if not isImportedType(t): app(m.s[cfsTypes], recdesc)
+        echo(recdesc.ropeToStr)
+        i.inc         
+
+    else:  
+      result = CacheGetType(m.forwTypeCache, t)
+      if result == nil: 
+        result = getTypeName(t)
+        if not isImportedType(t): 
+          appf(m.s[cfsForwardTypes], getForwardStructFormat(), [result])
+        IdTablePut(m.forwTypeCache, t, result)
+      IdTablePut(m.typeCache, t, result) # always call for sideeffects:
+      if t.kind != tyTuple: recdesc = getRecordDesc(m, t, result, check)
+      else: recdesc = getTupleDesc(m, t, result, check)
+      if not isImportedType(t): app(m.s[cfsTypes], recdesc)
   of tySet: 
     case int(getSize(t))
     of 1: result = toRope("NU8")
@@ -608,12 +678,13 @@ proc getTypeDescAux(m: BModule, typ: PType, check: var TIntSet): PRope =
              [result, toRope(getSize(t))])
   of tyGenericInst, tyDistinct, tyOrdinal, tyConst, tyMutable, 
       tyIter, tyTypeDesc:
-    result = getTypeDescAux(m, lastSon(t), check)
+    result = getTypeDescAux(m, lastSon(t), check)  
   else:
     InternalError("getTypeDescAux(" & $t.kind & ')')
     result = nil
   # fixes bug #145:
   excl(check, t.id)
+
 
 proc getTypeDesc(m: BModule, typ: PType): PRope = 
   var check = initIntSet()

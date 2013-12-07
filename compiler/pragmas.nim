@@ -51,7 +51,7 @@ const
   typePragmas* = {wImportc, wExportc, wDeprecated, wMagic, wAcyclic, wNodecl, 
     wPure, wHeader, wCompilerProc, wFinal, wSize, wExtern, wShallow, 
     wImportcpp, wImportobjc, wError, wIncompleteStruct, wByCopy, wByRef,
-    wInheritable, wGenSym, wInject, wRequiresInit}
+    wInheritable, wGenSym, wInject, wRequiresInit, wStaticCase}
   fieldPragmas* = {wImportc, wExportc, wDeprecated, wExtern, 
     wImportcpp, wImportobjc, wError}
   varPragmas* = {wImportc, wExportc, wVolatile, wRegister, wThreadVar, wNodecl, 
@@ -702,6 +702,15 @@ proc singlePragma(c: PContext, sym: PSym, n: PNode, i: int,
           noVal(it)
           if sym.typ == nil: invalidPragma(it)
           else: incl(sym.typ.flags, tfNeedsInit)
+        of wStaticCase:
+          noVal(it)
+          if sym == nil or sym.typ == nil:            
+            invalidPragma(it)            
+          else:
+            echo("- staticCase flag set")            
+            incl(sym.typ.flags, tfStaticCase)
+            debug(sym.typ)
+            echo(sym.typ.flags)
         of wByRef:
           noVal(it)
           if sym == nil or sym.typ == nil:

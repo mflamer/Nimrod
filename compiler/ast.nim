@@ -389,6 +389,7 @@ type
     tfHasShared,      # type constains a "shared" constraint modifier somewhere
     tfHasMeta,        # type has "typedesc" or "expr" somewhere; or uses '|'
     tfHasGCedMem,     # type contains GC'ed memory
+    tfStaticCase,     # Object variants allocated as strucs instead of unions 
 
   TTypeFlags* = set[TTypeFlag]
 

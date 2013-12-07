@@ -668,6 +668,9 @@ proc genRecordField(p: BProc, e: PNode, d: var TLoc) =
     if field == nil: InternalError(e.info, "genRecordField 2 ")
     if field.loc.r == nil: InternalError(e.info, "genRecordField 3")
     appf(r, ".$1", [field.loc.r])
+    if tfStaticCase in ty.flags:          
+      echo("-- field access") 
+      debug(ty)
     putIntoDest(p, d, field.typ, r)
 
 proc genInExprAux(p: BProc, e: PNode, a, b, d: var TLoc)
